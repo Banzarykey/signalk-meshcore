@@ -1,5 +1,25 @@
 ## v0.0.1 - 2026-06-23
 
+### 🧹 Chores
+- update CHANGELOG.md for v0.0.1 (4b7ef85)
+
+### 📦 Other
+- change node version (2f93031)
+- Add release workflow for GitHub and npm (496bf5e)
+- Add package-lock.json (dea61b5)
+- remove lock (c39ed00)
+- Upgrade Node.js version from 20 to 24 (c7bdd7e)
+- update node version (bba3f22)
+- change package name (b9f3119)
+- Use npm ci with lockfile in release workflow (f40bdb1)
+- Fix npm publish workflow build job commands (0a66ae3)
+- Initial plan (fb501e3)
+- Add npm publish workflow for Node.js package (c662ee6)
+- Initial commit (f94e19b)
+
+
+## v0.0.1 - 2026-06-23
+
 ### 📦 Other
 - Add release workflow for GitHub and npm (496bf5e)
 - Add package-lock.json (dea61b5)
