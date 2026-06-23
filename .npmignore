@@ -1,0 +1,8 @@
+# Development / test files — not needed by end users
+*.tgz
+*.log
+.env
+.DS_Store
+node_modules/
+data/
+meshcore-nodes.json
