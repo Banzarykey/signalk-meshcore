@@ -137,6 +137,11 @@ jobs:
 
       - run: npm ci
 
+      - name: Sync package version from tag
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          npm version --no-git-tag-version "${tag#v}"
+
       # Assumes your package.json defines `prepublishOnly` (or `prepare`) if a
       # build step is needed — see the AppStore publishing guide.
       - name: Publish to npm
