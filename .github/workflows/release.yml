@@ -1,30 +1,3 @@
-# ─────────────────────────────────────────────────────────────
-# SignalK Plugin Release + Publish
-#
-# Drop this file into your plugin repo at:
-#   .github/workflows/release.yml
-#
-# On every pushed tag (e.g. `1.4.2` or `v1.4.2`) this workflow:
-#   1. Creates a GitHub Release with auto-generated notes built
-#      from merged PRs since the previous tag.
-#   2. Publishes the package to npm with provenance.
-#
-# Tags containing "beta" (e.g. `1.5.0-beta.1`) are published to
-# the `beta` npm dist-tag instead of `latest`.
-#
-# Prerequisites:
-#   - Create an npm access token and add it as repo secret NPM_TOKEN.
-#     (Needed only if your account requires a token; provenance
-#     works without one via OIDC on public npm packages, but most
-#     accounts still need NPM_TOKEN set.)
-#   - Release the package once manually from your machine so npm
-#     knows the package exists under the correct scope.
-#
-# Releasing a new version:
-#   npm version patch     # or minor / major — updates package.json and tags
-#   git push && git push --tags
-# ─────────────────────────────────────────────────────────────
-
 name: Release
 
 on:
@@ -42,43 +15,48 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
+      # IMPORTANT: checkout main, not the tag
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      # docs — documentation-only changes
-      # refactor — code change that's neither a fix nor a feature (restructuring, renaming, no behavior change)
-      # test — adding or fixing tests
-      # style — formatting, whitespace, semicolons — no logic change
-      # perf — performance improvement
-      # build — build system or dependency changes (e.g. Vite config, package.json)
-      # ci — CI/CD config changes (exactly what you're editing right now)
+          ref: main
 
       - name: Generate changelog from commits
         id: changelog
         run: |
+          git fetch --tags
+
           prev_tag=$(git tag --sort=-creatordate | grep -v "^${GITHUB_REF_NAME}$" | head -n1)
+
           if [ -n "$prev_tag" ]; then
             range="${prev_tag}..${GITHUB_REF_NAME}"
           else
             range="${GITHUB_REF_NAME}"
           fi
+
           log=$(git log "$range" --pretty=format:"%s|%h" --no-merges)
+
           section() {
-            local title="$1" pattern="$2"
+            local title="$1"
+            local pattern="$2"
             local matches
+
             matches=$(echo "$log" | grep -iE "^${pattern}(\(.+\))?:" || true)
+
             if [ -n "$matches" ]; then
               echo "### $title"
               echo "$matches" | awk -F'|' '{sub(/^[a-zA-Z]+(\([^)]*\))?: */, "", $1); print "- " $1 " (" $2 ")"}'
               echo ""
             fi
           }
+
           {
             echo "body<<EOF"
             echo "## ${GITHUB_REF_NAME} - $(date +%Y-%m-%d)"
             echo ""
+
             section "✨ Features" "feat"
             section "🐛 Fixes" "fix"
             section "♻️ Refactors" "refactor"
@@ -86,31 +64,51 @@ jobs:
             section "⚡ Performance" "perf"
             section "🧹 Chores" "chore"
             section "🔧 CI" "ci"
+
             other=$(echo "$log" | grep -ivE "^(feat|fix|refactor|docs|perf|chore|ci)(\(.+\))?:" || true)
+
             if [ -n "$other" ]; then
               echo "### 📦 Other"
               echo "$other" | awk -F'|' '{print "- " $1 " (" $2 ")"}'
               echo ""
             fi
+
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-      - name: Prepend to CHANGELOG.md
+
+
+      - name: Update CHANGELOG.md
         run: |
           touch CHANGELOG.md
+
           tmp=$(mktemp)
+
           {
             echo "${{ steps.changelog.outputs.body }}"
             echo ""
             cat CHANGELOG.md
           } > "$tmp"
+
           mv "$tmp" CHANGELOG.md
+
+
       - name: Commit CHANGELOG.md
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git pull --rebase origin main
+
           git add CHANGELOG.md
-          git diff --staged --quiet || git commit -m "chore: update CHANGELOG.md for ${GITHUB_REF_NAME}"
-          git push origin HEAD:main
+
+          if git diff --cached --quiet; then
+            echo "No changelog changes"
+          else
+            git commit -m "chore: update CHANGELOG.md for ${GITHUB_REF_NAME}"
+            git push origin main
+          fi
+
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -121,13 +119,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+
   publish:
     needs: release
+
     runs-on: ubuntu-latest
+
     permissions:
       id-token: write
       contents: read
+
     steps:
+      # Keep this as tag checkout
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
@@ -137,15 +140,13 @@ jobs:
 
       - run: npm ci
 
-      # Assumes your package.json defines `prepublishOnly` (or `prepare`) if a
-      # build step is needed — see the AppStore publishing guide.
       - name: Publish to npm
-        # env:
-        #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
+
           if [[ "$tag" == *beta* ]]; then
             npm publish --provenance --access public --tag beta
           else
             npm publish --provenance --access public
           fi
+          
