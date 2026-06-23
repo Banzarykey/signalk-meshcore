@@ -43,7 +43,7 @@
     }
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=18"
   },
   "displayName": "MeshCore Telemetry",
   "signalk-plugin-enabled-by-default": false
