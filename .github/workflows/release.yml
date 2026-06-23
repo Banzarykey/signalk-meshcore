@@ -1,149 +1,310 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+*"
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (example: v0.0.4)"
+        required: true
+        type: string
+
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
+
 jobs:
+
   release:
+
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
+      id-token: write
+
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.body }}
+
 
     steps:
-      # IMPORTANT: checkout main, not the tag
-      - uses: actions/checkout@v7
+
+
+      - name: Checkout main
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate changelog from commits
+
+
+      - name: Validate version
+        id: version
+        run: |
+
+          VERSION="${{ inputs.version }}"
+
+          if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([\-].+)?$ ]]; then
+            echo "Invalid version: $VERSION"
+            exit 1
+          fi
+
+
+          if [[ "$VERSION" != v* ]]; then
+            VERSION="v$VERSION"
+          fi
+
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+
+
+      - name: Generate changelog
         id: changelog
         run: |
+
           git fetch --tags
 
-          prev_tag=$(git tag --sort=-creatordate | grep -v "^${GITHUB_REF_NAME}$" | head -n1)
 
-          if [ -n "$prev_tag" ]; then
-            range="${prev_tag}..${GITHUB_REF_NAME}"
+          previous=$(git tag --sort=-creatordate | head -n1 || true)
+
+
+          if [ -n "$previous" ]; then
+            range="${previous}..HEAD"
           else
-            range="${GITHUB_REF_NAME}"
+            range="HEAD"
           fi
+
 
           log=$(git log "$range" --pretty=format:"%s|%h" --no-merges)
 
+
           section() {
-            local title="$1"
-            local pattern="$2"
-            local matches
+
+            title="$1"
+            pattern="$2"
+
 
             matches=$(echo "$log" | grep -iE "^${pattern}(\(.+\))?:" || true)
 
+
             if [ -n "$matches" ]; then
+
               echo "### $title"
-              echo "$matches" | awk -F'|' '{sub(/^[a-zA-Z]+(\([^)]*\))?: */, "", $1); print "- " $1 " (" $2 ")"}'
+
+              echo "$matches" |
+              awk -F'|' '{sub(/^[a-zA-Z]+(\([^)]*\))?: */, "", $1); print "- " $1 " (" $2 ")"}'
+
               echo ""
+
             fi
+
           }
 
+
+
           {
+
             echo "body<<EOF"
-            echo "## ${GITHUB_REF_NAME} - $(date +%Y-%m-%d)"
+
+            echo "## ${{ steps.version.outputs.version }} - $(date +%Y-%m-%d)"
             echo ""
+
 
             section "✨ Features" "feat"
             section "🐛 Fixes" "fix"
             section "♻️ Refactors" "refactor"
-            section "📝 Docs" "docs"
+            section "📝 Documentation" "docs"
             section "⚡ Performance" "perf"
             section "🧹 Chores" "chore"
             section "🔧 CI" "ci"
 
-            other=$(echo "$log" | grep -ivE "^(feat|fix|refactor|docs|perf|chore|ci)(\(.+\))?:" || true)
+
+            other=$(echo "$log" |
+              grep -ivE "^(feat|fix|refactor|docs|perf|chore|ci)(\(.+\))?:" ||
+              true)
+
 
             if [ -n "$other" ]; then
+
               echo "### 📦 Other"
-              echo "$other" | awk -F'|' '{print "- " $1 " (" $2 ")"}'
+
+              echo "$other" |
+              awk -F'|' '{print "- " $1 " (" $2 ")"}'
+
               echo ""
+
             fi
 
+
             echo "EOF"
+
+
           } >> "$GITHUB_OUTPUT"
+
 
 
       - name: Update CHANGELOG.md
         run: |
+
           touch CHANGELOG.md
+
 
           tmp=$(mktemp)
 
+
           {
+
             echo "${{ steps.changelog.outputs.body }}"
+
             echo ""
+
             cat CHANGELOG.md
+
+
           } > "$tmp"
+
 
           mv "$tmp" CHANGELOG.md
 
 
-      - name: Commit CHANGELOG.md
+
+
+      - name: Commit changelog
         run: |
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+
           git add CHANGELOG.md
 
-          if git diff --cached --quiet; then
-            echo "No changelog changes"
-          else
-            git commit -m "chore: update CHANGELOG.md for ${GITHUB_REF_NAME}"
-            git push origin main
-          fi
+
+          git commit \
+            -m "chore: update CHANGELOG.md for ${{ steps.version.outputs.version }}"
+
+
+          git push origin main
+
+
+
+
+      - name: Create release tag
+        run: |
+
+          git tag \
+            ${{ steps.version.outputs.version }}
+
+
+          git push origin \
+            ${{ steps.version.outputs.version }}
+
+
+
+
 
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
+
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+
+          tag_name: ${{ steps.version.outputs.version }}
+
+          name: ${{ steps.version.outputs.version }}
+
           body: ${{ steps.changelog.outputs.body }}
-          prerelease: ${{ contains(github.ref_name, 'beta') }}
+
+          prerelease: ${{ contains(steps.version.outputs.version, 'beta') }}
+
         env:
+
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
+
+
+
   publish:
+
+
     needs: release
+
 
     runs-on: ubuntu-latest
 
+
     permissions:
-      id-token: write
+
       contents: read
 
-    steps:
-      # Keep this as tag checkout
-      - uses: actions/checkout@v7
+      id-token: write
 
-      - uses: actions/setup-node@v6
+
+
+    steps:
+
+
+      - name: Checkout release tag
+
+        uses: actions/checkout@v7
+
         with:
+
+          ref: ${{ needs.release.outputs.version }}
+
+          fetch-depth: 0
+
+
+
+
+      - name: Setup Node
+
+        uses: actions/setup-node@v6
+
+        with:
+
           node-version: "24"
+
           registry-url: "https://registry.npmjs.org"
 
-      - run: npm ci
 
-      - name: Publish to npm
+
+
+      - name: Install dependencies
+
+        run: npm ci
+
+
+
+
+      - name: Publish npm package
+
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
 
-          if [[ "$tag" == *beta* ]]; then
-            npm publish --provenance --access public --tag beta
+
+          VERSION="${{ needs.release.outputs.version }}"
+
+
+          if [[ "$VERSION" == *beta* ]]; then
+
+
+            npm publish \
+              --provenance \
+              --access public \
+              --tag beta
+
+
           else
-            npm publish --provenance --access public
+
+
+            npm publish \
+              --provenance \
+              --access public
+
+
           fi
