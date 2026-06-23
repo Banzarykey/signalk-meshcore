@@ -1,6 +1,16 @@
 ## v0.0.3 - 2026-06-23
 
 ### 🧹 Chores
+- update CHANGELOG.md for v0.0.3 (a2d5dc1)
+- update CHANGELOG.md for v0.0.2 (9f65edd)
+
+### 📦 Other
+- change node version (055bdaa)
+
+
+## v0.0.3 - 2026-06-23
+
+### 🧹 Chores
 - update CHANGELOG.md for v0.0.2 (9f65edd)
 
 
