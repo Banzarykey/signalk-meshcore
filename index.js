@@ -75,10 +75,10 @@ module.exports = function (app) {
         title: "Listen for #TEL: messages on all channels",
         default: true
       },
-      listenForLocationAdverts: {
+      captureLocationAdverts: {
         type: "boolean",
         title: "Capture location adverts from non-Team nodes",
-        description: "Also listens for MeshCore node advertisements and updates location when the advert has the 0x10 location flag set. Channel monitoring stays enabled independently.",
+        description: "Opt-in. Also listens for MeshCore node advertisements and captures location when lat/lon are present. Advertisements without coordinates are ignored.",
         default: false
       },
       vesselTypeId: {
@@ -397,13 +397,18 @@ module.exports = function (app) {
   }
 
   function publishAdvertLocation(hexId, displayName, latitude, longitude) {
-    if (typeof latitude !== "number" || typeof longitude !== "number") {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return;
     }
 
     const context = contextForNode(hexId);
     const timestamp = new Date().toISOString();
     const label = displayName || hexId;
+    knownContacts.set(hexId, label);
+    contactNameToHexId.set(label, hexId);
+    const mmsi = pseudoMmsi(hexId);
+    const shipTypeId = pluginOptions.vesselTypeId || 37;
+    const shipTypeName = AIS_TYPE_NAMES[shipTypeId] || "Other";
     const delta = {
       context,
       updates: [
@@ -412,7 +417,10 @@ module.exports = function (app) {
           timestamp,
           values: [
             { path: "navigation.position", value: { latitude, longitude } },
-            { path: "name", value: label }
+            { path: "name", value: label },
+            { path: "mmsi", value: mmsi },
+            { path: "design.aisShipType", value: { id: shipTypeId, name: shipTypeName } },
+            { path: "communication.callsignVhf", value: label }
           ]
         }
       ]
@@ -423,16 +431,12 @@ module.exports = function (app) {
     recordNodeSeen(hexId, displayName, { latitude, longitude, batteryMv: null });
   }
 
-  function hasLocationAdvertFlag(flags) {
-    return (flags & 0x10) === 0x10;
-  }
-
   function parseLocationAdvertCoordinates(message) {
-    if (!message || !hasLocationAdvertFlag(message.flags || 0)) {
+    if (!message) {
       return null;
     }
 
-    if (typeof message.advLat !== "number" || typeof message.advLon !== "number") {
+    if (!Number.isFinite(message.advLat) || !Number.isFinite(message.advLon)) {
       return null;
     }
 
@@ -451,7 +455,7 @@ module.exports = function (app) {
   }
 
   function handleLocationAdvert(message) {
-    if (!pluginOptions.listenForLocationAdverts) {
+    if (!pluginOptions.captureLocationAdverts) {
       return;
     }
 
@@ -466,6 +470,8 @@ module.exports = function (app) {
     }
 
     const displayName = message.advName || knownContacts.get(hexId) || hexId;
+    knownContacts.set(hexId, displayName);
+    contactNameToHexId.set(displayName, hexId);
     publishAdvertLocation(hexId, displayName, location.latitude, location.longitude);
   }
 
@@ -884,7 +890,7 @@ module.exports = function (app) {
           const hexId = prefixToHex(contact.publicKey.subarray(0, 6));
           knownContacts.set(hexId, contact.advName);
           contactNameToHexId.set(contact.advName, hexId);
-          if (pluginOptions.listenForLocationAdverts && hasLocationAdvertFlag(contact.flags || 0)) {
+          if (pluginOptions.captureLocationAdverts && Number.isFinite(contact.advLat) && Number.isFinite(contact.advLon)) {
             const latitude = contact.advLat / 1000000;
             const longitude = contact.advLon / 1000000;
             publishAdvertLocation(hexId, contact.advName || hexId, latitude, longitude);

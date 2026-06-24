@@ -106,7 +106,7 @@ Go to **Server → Plugin Config → MeshCore Telemetry** after installing.
 | Setting | Description | Default |
 |---|---|---|
 | Associate nodes with AIS vessels | Match `DE <callsign>` node names to existing SignalK vessels | Off |
-| Capture location adverts from non-Team nodes | Also listen for MeshCore node advertisements and capture location when the advert has the `0x10` location flag set. Channel monitoring stays on independently. | Off |
+| Capture location adverts from non-Team nodes | Opt-in. Also listen for MeshCore node advertisements and capture location when lat/lon are present. Advertisements without coordinates are ignored. | Off |
 
 ---
 
