@@ -1,3 +1,9 @@
+## v0.0.12 - 2026-06-24
+
+### 📦 Other
+- Add NODE_AUTH_TOKEN to npm publish step (73e72b4)
+
+
 ## v0.0.11 - 2026-06-24
 
 ### 📦 Other
