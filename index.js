@@ -355,19 +355,14 @@ module.exports = function (app) {
     const shipTypeId = pluginOptions.vesselTypeId || 37;
     const shipTypeName = AIS_TYPE_NAMES[shipTypeId] || "Other";
     const label = displayName || hexId;
+    const lat = tel.latitude
+    const long = tel.longitude
 
     const values = [
-      {
-        path: "navigation.position",
-        value: { latitude: tel.latitude, longitude: tel.longitude }
-      },
-      // name is the primary label freeboard-sk shows on the map and popup
+      { path: "navigation.position", value: { lat, long }},
       { path: "name", value: label },
       { path: "mmsi", value: mmsi },
-      // design.aisShipType.id drives the icon; .name shows in the popup type line
       { path: "design.aisShipType", value: { id: shipTypeId, name: shipTypeName } },
-      // communication.callsignVhf shows in the freeboard-sk vessel popover
-      // as the callsign field - use the node's display name so it's human readable
       { path: "communication.callsignVhf", value: label },
       { path: "sensors.meshcore.forwardStatus", value: tel.forwardStatus },
       { path: "sensors.meshcore.phoneBattery", value: tel.phoneBattery }
