@@ -75,6 +75,12 @@ module.exports = function (app) {
         title: "Listen for #TEL: messages on all channels",
         default: true
       },
+      listenForLocationAdverts: {
+        type: "boolean",
+        title: "Capture location adverts from non-Team nodes",
+        description: "Also listens for MeshCore node advertisements and updates location when the advert has the 0x10 location flag set. Channel monitoring stays enabled independently.",
+        default: false
+      },
       vesselTypeId: {
         type: "number",
         title: "AIS vessel type for MeshCore nodes",
@@ -148,8 +154,8 @@ module.exports = function (app) {
       },
       recoverTelFromUnknownFrames: {
         type: "boolean",
-        title: "Attempt to recover #TEL: data from unrecognised frame types",
-        description: "Off by default. The same TEL message is normally already delivered as a proper channel/contact message; turning this on can create a duplicate, unnamed vessel for the same node if a firmware log frame happens to also contain the text.",
+        title: "Listen for MeshCore telemetry outside channels",
+        description: "Off by default. Decodes raw or unrecognised MeshCore frames that contain a #TEL: payload, which can surface default telemetry broadcasts outside normal channel messages. Turning this on can create duplicate vessels if the same data is also delivered as a channel/contact message.",
         default: false
       }
     }
@@ -390,6 +396,79 @@ module.exports = function (app) {
     recordNodeSeen(hexId, displayName, tel);
   }
 
+  function publishAdvertLocation(hexId, displayName, latitude, longitude) {
+    if (typeof latitude !== "number" || typeof longitude !== "number") {
+      return;
+    }
+
+    const context = contextForNode(hexId);
+    const timestamp = new Date().toISOString();
+    const label = displayName || hexId;
+    const delta = {
+      context,
+      updates: [
+        {
+          $source: plugin.id,
+          timestamp,
+          values: [
+            { path: "navigation.position", value: { latitude, longitude } },
+            { path: "name", value: label }
+          ]
+        }
+      ]
+    };
+
+    app.handleMessage(plugin.id, delta);
+    app.debug(`Published MeshCore advert location for ${label}: lat=${latitude} lon=${longitude}`);
+    recordNodeSeen(hexId, displayName, { latitude, longitude, batteryMv: null });
+  }
+
+  function hasLocationAdvertFlag(flags) {
+    return (flags & 0x10) === 0x10;
+  }
+
+  function parseLocationAdvertCoordinates(message) {
+    if (!message || !hasLocationAdvertFlag(message.flags || 0)) {
+      return null;
+    }
+
+    if (typeof message.advLat !== "number" || typeof message.advLon !== "number") {
+      return null;
+    }
+
+    return {
+      latitude: message.advLat / 1000000,
+      longitude: message.advLon / 1000000
+    };
+  }
+
+  function hexIdFromAdvert(message) {
+    const publicKey = message && message.publicKey;
+    if (!publicKey) {
+      return null;
+    }
+    return prefixToHex(Buffer.from(publicKey).subarray(0, 6));
+  }
+
+  function handleLocationAdvert(message) {
+    if (!pluginOptions.listenForLocationAdverts) {
+      return;
+    }
+
+    const location = parseLocationAdvertCoordinates(message);
+    if (!location) {
+      return;
+    }
+
+    const hexId = hexIdFromAdvert(message);
+    if (!hexId) {
+      return;
+    }
+
+    const displayName = message.advName || knownContacts.get(hexId) || hexId;
+    publishAdvertLocation(hexId, displayName, location.latitude, location.longitude);
+  }
+
   // ---------------------------------------------------------------------
   // MeshCore connection handling
   // ---------------------------------------------------------------------
@@ -564,12 +643,25 @@ module.exports = function (app) {
           const hexId = prefixToHex(contact.publicKey.subarray(0, 6));
           knownContacts.set(hexId, contact.advName);
           contactNameToHexId.set(contact.advName, hexId);
+          if (pluginOptions.listenForLocationAdverts && hasLocationAdvertFlag(contact.flags || 0)) {
+            const latitude = contact.advLat / 1000000;
+            const longitude = contact.advLon / 1000000;
+            publishAdvertLocation(hexId, contact.advName || hexId, latitude, longitude);
+          }
         }
       } catch (err) {
         app.debug(`Failed to pre-load MeshCore contacts: ${err.message}`);
       }
       startOwnPositionSharing(options);
       startAlertRelay(options);
+    });
+
+    connection.on(Constants.PushCodes.NewAdvert, async (message) => {
+      try {
+        handleLocationAdvert(message);
+      } catch (err) {
+        app.debug(`Failed to process MeshCore new-advert message: ${err.message}`);
+      }
     });
 
     connection.on("disconnected", () => {
