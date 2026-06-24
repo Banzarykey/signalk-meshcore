@@ -355,11 +355,9 @@ module.exports = function (app) {
     const shipTypeId = pluginOptions.vesselTypeId || 37;
     const shipTypeName = AIS_TYPE_NAMES[shipTypeId] || "Other";
     const label = displayName || hexId;
-    const lat = tel.latitude
-    const long = tel.longitude
 
     const values = [
-      { path: "navigation.position", value: { lat, long }},
+      { path: "navigation.position", value: { latitude: tel.latitude, longitude: tel.longitude } },
       { path: "name", value: label },
       { path: "mmsi", value: mmsi },
       { path: "design.aisShipType", value: { id: shipTypeId, name: shipTypeName } },
@@ -387,7 +385,9 @@ module.exports = function (app) {
     };
 
     app.handleMessage(plugin.id, delta);
-    app.debug(`Published MeshCore TEL for ${label} (mmsi=${mmsi}): lat=${tel.latitude} lon=${tel.longitude}`);
+    app.debug(
+      `Published MeshCore TEL for ${label} (mmsi=${mmsi}): lat=${tel.latitude} lon=${tel.longitude} knownContact=${knownContacts.get(hexId) || ''} contactNameKey=${contactNameToHexId.get(normalizeDisplayName(label)) || ''}`
+    );
     recordNodeSeen(hexId, displayName, tel);
   }
 
@@ -400,7 +400,10 @@ module.exports = function (app) {
     const timestamp = new Date().toISOString();
     const label = displayName || hexId;
     knownContacts.set(hexId, label);
-    contactNameToHexId.set(label, hexId);
+    const normLabel = normalizeDisplayName(label);
+    if (normLabel) {
+      contactNameToHexId.set(normLabel, hexId);
+    }
     const mmsi = pseudoMmsi(hexId);
     const shipTypeId = pluginOptions.vesselTypeId || 37;
     const shipTypeName = AIS_TYPE_NAMES[shipTypeId] || "Other";
@@ -470,7 +473,10 @@ module.exports = function (app) {
 
     const displayName = message.advName || knownContacts.get(hexId) || hexId;
     knownContacts.set(hexId, displayName);
-    contactNameToHexId.set(displayName, hexId);
+    const normDisplay = normalizeDisplayName(displayName);
+    if (normDisplay) {
+      contactNameToHexId.set(normDisplay, hexId);
+    }
     publishAdvertLocation(hexId, displayName, location.latitude, location.longitude);
   }
 
@@ -554,7 +560,7 @@ module.exports = function (app) {
         displayName = hexId;
       }
       knownContacts.set(hexId, displayName);
-      contactNameToHexId.set(displayName, hexId);
+      contactNameToHexId.set(normalizeDisplayName(displayName), hexId);
     }
 
     app.debug(`MeshCore message from ${displayName} (${hexId}): ${message.text}`);
@@ -893,8 +899,11 @@ module.exports = function (app) {
         const contacts = await connection.getContacts();
         for (const contact of contacts) {
           const hexId = prefixToHex(contact.publicKey.subarray(0, 6));
-          knownContacts.set(hexId, contact.advName);
-          contactNameToHexId.set(contact.advName, hexId);
+                knownContacts.set(hexId, contact.advName);
+                const norm = normalizeDisplayName(contact.advName);
+                if (norm) {
+                  contactNameToHexId.set(norm, hexId);
+                }
           if (Number(contact.type) === 2) {
             continue;
           }
