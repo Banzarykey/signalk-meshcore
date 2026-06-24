@@ -1,5 +1,19 @@
 ## v0.0.6 - 2026-06-24
 
+### 🐛 Fixes
+- remove rebase from release changelog commit (fd9aacc)
+
+### 🧹 Chores
+- update CHANGELOG.md for v0.0.6 (ccbc8bb)
+
+### 📦 Other
+- 0.0.6 (a02a4fa)
+- add option to listen to location adverts (3d8e331)
+- patch worker (0eb9e5d)
+
+
+## v0.0.6 - 2026-06-24
+
 
 ## v0.0.3 - 2026-06-23
 
