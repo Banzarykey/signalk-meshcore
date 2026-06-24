@@ -288,7 +288,8 @@ jobs:
 
 
       - name: Publish npm package
-
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
 
           VERSION="${{ needs.release.outputs.version }}"
