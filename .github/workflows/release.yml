@@ -4,17 +4,9 @@ on:
   push:
     tags:
       - "**"
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       version:
-#         description: "Release version (example: v0.0.4)"
-#         required: true
-#         type: string
-
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 
@@ -36,24 +28,22 @@ jobs:
 
     steps:
 
-
-      - name: Checkout main
+      - name: Checkout tag
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
 
-
-      - name: Validate version
+      - name: Get version from tag
         id: version
         run: |
 
-          VERSION="${{ inputs.version }}"
+          VERSION="${GITHUB_REF_NAME}"
+
 
           if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([\-].+)?$ ]]; then
-            echo "Invalid version: $VERSION"
+            echo "Invalid tag version: $VERSION"
             exit 1
           fi
 
@@ -67,6 +57,17 @@ jobs:
 
 
 
+      - name: Checkout main branch
+        run: |
+
+          git fetch origin main
+
+          git checkout main
+
+          git pull --rebase origin main
+
+
+
       - name: Generate changelog
         id: changelog
         run: |
@@ -74,7 +75,7 @@ jobs:
           git fetch --tags
 
 
-          previous=$(git tag --sort=-creatordate | head -n1 || true)
+          previous=$(git tag --sort=-creatordate | grep -v "^${GITHUB_REF_NAME}$" | head -n1 || true)
 
 
           if [ -n "$previous" ]; then
@@ -89,8 +90,8 @@ jobs:
 
           section() {
 
-            title="$1"
-            pattern="$2"
+            local title="$1"
+            local pattern="$2"
 
 
             matches=$(echo "$log" | grep -iE "^${pattern}(\(.+\))?:" || true)
@@ -110,12 +111,12 @@ jobs:
           }
 
 
-
           {
 
             echo "body<<EOF"
 
             echo "## ${{ steps.version.outputs.version }} - $(date +%Y-%m-%d)"
+
             echo ""
 
 
@@ -192,22 +193,23 @@ jobs:
             -m "chore: update CHANGELOG.md for ${{ steps.version.outputs.version }}"
 
 
-          git push origin main
 
-
-
-
-      - name: Create release tag
+      - name: Move tag to release commit
         run: |
 
-          git tag \
-            ${{ steps.version.outputs.version }}
-
+          git tag -f "${{ steps.version.outputs.version }}"
 
           git push origin \
-            ${{ steps.version.outputs.version }}
+            "${{ steps.version.outputs.version }}" \
+            --force
 
 
+
+
+      - name: Push changelog commit
+        run: |
+
+          git push origin main
 
 
 
@@ -224,6 +226,7 @@ jobs:
           body: ${{ steps.changelog.outputs.body }}
 
           prerelease: ${{ contains(steps.version.outputs.version, 'beta') }}
+
 
         env:
 
@@ -254,9 +257,7 @@ jobs:
 
 
       - name: Checkout release tag
-
         uses: actions/checkout@v7
-
         with:
 
           ref: ${{ needs.release.outputs.version }}
@@ -287,30 +288,23 @@ jobs:
 
 
       - name: Publish npm package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
 
+        run: |
 
           VERSION="${{ needs.release.outputs.version }}"
 
 
           if [[ "$VERSION" == *beta* ]]; then
 
-
             npm publish \
               --provenance \
               --access public \
               --tag beta
 
-
           else
-
 
             npm publish \
               --provenance \
               --access public
 
-
           fi
-        
