@@ -341,6 +341,23 @@ module.exports = function (app) {
     99: "Other"
   };
 
+  function isMeaningfulDisplayName(displayName, hexId) {
+    if (!displayName) {
+      return false;
+    }
+    const normalized = normalizeDisplayName(displayName);
+    if (!normalized) {
+      return false;
+    }
+    if (hexId && normalized.toLowerCase() === hexId.toLowerCase()) {
+      return false;
+    }
+    if (/^channel\d+$/i.test(normalized)) {
+      return false;
+    }
+    return true;
+  }
+
   function publishTelemetry(hexId, displayName, tel) {
     let context = contextForNode(hexId);
     if (pluginOptions.associateWithAisVessels) {
@@ -354,17 +371,20 @@ module.exports = function (app) {
     const mmsi = pseudoMmsi(hexId);
     const shipTypeId = pluginOptions.vesselTypeId || 37;
     const shipTypeName = AIS_TYPE_NAMES[shipTypeId] || "Other";
-    const label = displayName || hexId;
+    const label = isMeaningfulDisplayName(displayName, hexId) ? normalizeDisplayName(displayName) : null;
 
     const values = [
       { path: "navigation.position", value: { latitude: tel.latitude, longitude: tel.longitude } },
-      { path: "name", value: label },
       { path: "mmsi", value: mmsi },
       { path: "design.aisShipType", value: { id: shipTypeId, name: shipTypeName } },
-      { path: "communication.callsignVhf", value: label },
       { path: "sensors.meshcore.forwardStatus", value: tel.forwardStatus },
       { path: "sensors.meshcore.phoneBattery", value: tel.phoneBattery }
     ];
+
+    if (label) {
+      values.push({ path: "name", value: label });
+      values.push({ path: "communication.callsignVhf", value: label });
+    }
 
     if (tel.batteryMv !== null) {
       values.push({
@@ -386,7 +406,7 @@ module.exports = function (app) {
 
     app.handleMessage(plugin.id, delta);
     app.debug(
-      `Published MeshCore TEL for ${label} (mmsi=${mmsi}): lat=${tel.latitude} lon=${tel.longitude} knownContact=${knownContacts.get(hexId) || ''} contactNameKey=${contactNameToHexId.get(normalizeDisplayName(label)) || ''}`
+      `Published MeshCore TEL for ${label || hexId} (mmsi=${mmsi}): lat=${tel.latitude} lon=${tel.longitude} knownContact=${knownContacts.get(hexId) || ''} contactNameKey=${label ? contactNameToHexId.get(normalizeDisplayName(label)) || '' : ''}`
     );
     recordNodeSeen(hexId, displayName, tel);
   }
@@ -398,11 +418,10 @@ module.exports = function (app) {
 
     const context = contextForNode(hexId);
     const timestamp = new Date().toISOString();
-    const label = displayName || hexId;
-    knownContacts.set(hexId, label);
-    const normLabel = normalizeDisplayName(label);
-    if (normLabel) {
-      contactNameToHexId.set(normLabel, hexId);
+    const label = isMeaningfulDisplayName(displayName, hexId) ? normalizeDisplayName(displayName) : null;
+    if (label) {
+      knownContacts.set(hexId, label);
+      contactNameToHexId.set(label, hexId);
     }
     const mmsi = pseudoMmsi(hexId);
     const shipTypeId = pluginOptions.vesselTypeId || 37;
@@ -415,17 +434,16 @@ module.exports = function (app) {
           timestamp,
           values: [
             { path: "navigation.position", value: { latitude, longitude } },
-            { path: "name", value: label },
             { path: "mmsi", value: mmsi },
             { path: "design.aisShipType", value: { id: shipTypeId, name: shipTypeName } },
-            { path: "communication.callsignVhf", value: label }
+            ...(label ? [{ path: "name", value: label }, { path: "communication.callsignVhf", value: label }] : [])
           ]
         }
       ]
     };
 
     app.handleMessage(plugin.id, delta);
-    app.debug(`Published MeshCore advert location for ${label}: lat=${latitude} lon=${longitude}`);
+    app.debug(`Published MeshCore advert location for ${label || hexId}: lat=${latitude} lon=${longitude}`);
     recordNodeSeen(hexId, displayName, { latitude, longitude, batteryMv: null });
   }
 
@@ -471,11 +489,14 @@ module.exports = function (app) {
       return;
     }
 
-    const displayName = message.advName || knownContacts.get(hexId) || hexId;
-    knownContacts.set(hexId, displayName);
-    const normDisplay = normalizeDisplayName(displayName);
-    if (normDisplay) {
-      contactNameToHexId.set(normDisplay, hexId);
+    const displayName = isMeaningfulDisplayName(message.advName, hexId)
+      ? message.advName
+      : isMeaningfulDisplayName(knownContacts.get(hexId), hexId)
+        ? knownContacts.get(hexId)
+        : null;
+    if (displayName) {
+      knownContacts.set(hexId, displayName);
+      contactNameToHexId.set(normalizeDisplayName(displayName), hexId);
     }
     publishAdvertLocation(hexId, displayName, location.latitude, location.longitude);
   }
@@ -551,16 +572,18 @@ module.exports = function (app) {
     // Resolve a friendly name for this contact, looking it up (and
     // caching) from the device's contact list if we haven't seen it yet.
     let displayName = knownContacts.get(hexId);
-    if (!displayName) {
+    if (!isMeaningfulDisplayName(displayName, hexId)) {
       try {
         const contact = await connection.findContactByPublicKeyPrefix(message.pubKeyPrefix);
-        displayName = contact ? contact.advName : hexId;
+        displayName = contact && isMeaningfulDisplayName(contact.advName, hexId) ? contact.advName : null;
       } catch (err) {
         app.debug(`Could not resolve contact name for ${hexId}: ${err.message}`);
-        displayName = hexId;
+        displayName = null;
       }
-      knownContacts.set(hexId, displayName);
-      contactNameToHexId.set(normalizeDisplayName(displayName), hexId);
+      if (displayName) {
+        knownContacts.set(hexId, displayName);
+        contactNameToHexId.set(normalizeDisplayName(displayName), hexId);
+      }
     }
 
     app.debug(`MeshCore message from ${displayName} (${hexId}): ${message.text}`);
@@ -899,10 +922,9 @@ module.exports = function (app) {
         const contacts = await connection.getContacts();
         for (const contact of contacts) {
           const hexId = prefixToHex(contact.publicKey.subarray(0, 6));
-                knownContacts.set(hexId, contact.advName);
-                const norm = normalizeDisplayName(contact.advName);
-                if (norm) {
-                  contactNameToHexId.set(norm, hexId);
+          if (isMeaningfulDisplayName(contact.advName, hexId)) {
+            knownContacts.set(hexId, contact.advName);
+            contactNameToHexId.set(normalizeDisplayName(contact.advName), hexId);
                 }
           if (Number(contact.type) === 2) {
             continue;
