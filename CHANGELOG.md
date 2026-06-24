@@ -1,3 +1,9 @@
+## v0.0.8 - 2026-06-24
+
+### 📦 Other
+- Add NODE_AUTH_TOKEN to npm publish step (ec3d34d)
+
+
 ## v0.0.6 - 2026-06-24
 
 ### 🐛 Fixes
