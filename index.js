@@ -569,11 +569,252 @@ module.exports = function (app) {
       .replace(/[^\x20-\x7e]/g, ".");
   }
 
+  function frameToHex(frame) {
+    return Buffer.from(frame).toString("hex").match(/.{1,2}/g)?.join(" ") || "";
+  }
+
+  function frameToAscii(frame) {
+    return Buffer.from(frame)
+      .toString("latin1")
+      .replace(/[^\x20-\x7e]/g, ".");
+  }
+
+  function frameNameFromCode(code, Constants) {
+    const entries = [
+      ...Object.entries(Constants.ResponseCodes),
+      ...Object.entries(Constants.PushCodes)
+    ];
+    const match = entries.find(([, value]) => value === code);
+    return match ? match[0] : `0x${code.toString(16)}`;
+  }
+
+  function bufferToHex(value, maxBytes = null) {
+    if (!value) return "";
+    const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    const slice = maxBytes === null ? bytes : bytes.subarray(0, maxBytes);
+    const hex = slice.toString("hex");
+    return hex.match(/.{1,2}/g)?.join("") || "";
+  }
+
+  function bufferToShortHex(value, maxBytes = 6) {
+    const hex = bufferToHex(value, maxBytes);
+    return hex ? `0x${hex}` : "";
+  }
+
+  function formatNumber(value, digits = 6) {
+    return typeof value === "number" ? Number(value.toFixed(digits)).toString() : "n/a";
+  }
+
+  function formatFlags(flags) {
+    return typeof flags === "number" ? `0x${flags.toString(16).padStart(2, "0")}` : "n/a";
+  }
+
+  function formatPathLen(pathLen) {
+    return typeof pathLen === "number" ? pathLen.toString() : "n/a";
+  }
+
+  function describeAdvert(payload) {
+    return [
+      `name=${payload.advName || ""}`,
+      `type=${payload.type}`,
+      `flags=${formatFlags(payload.flags)}`,
+      `lat=${formatNumber(payload.advLat / 1000000)}`,
+      `lon=${formatNumber(payload.advLon / 1000000)}`,
+      `lastAdvert=${payload.lastAdvert}`,
+      `pubkey=${bufferToShortHex(payload.publicKey)}`
+    ].join(" ");
+  }
+
+  function describeContact(payload) {
+    return [
+      `name=${payload.advName || ""}`,
+      `type=${payload.type}`,
+      `flags=${formatFlags(payload.flags)}`,
+      `lat=${formatNumber(payload.advLat / 1000000)}`,
+      `lon=${formatNumber(payload.advLon / 1000000)}`,
+      `lastAdvert=${payload.lastAdvert}`,
+      `pubkey=${bufferToShortHex(payload.publicKey)}`
+    ].join(" ");
+  }
+
+  function describeTextMessage(payload) {
+    return [
+      `pathLen=${formatPathLen(payload.pathLen)}`,
+      `txtType=${payload.txtType}`,
+      `ts=${payload.senderTimestamp}`,
+      `text=${payload.text}`
+    ].join(" ");
+  }
+
+  function describeChannelMessage(payload) {
+    return [
+      `channel=${payload.channelIdx}`,
+      `pathLen=${formatPathLen(payload.pathLen)}`,
+      `txtType=${payload.txtType}`,
+      `ts=${payload.senderTimestamp}`,
+      `text=${payload.text}`
+    ].join(" ");
+  }
+
+  function describeTelemetryResponse(payload) {
+    return [
+      `pubkey=${bufferToShortHex(payload.pubKeyPrefix)}`,
+      `lppBytes=${payload.lppSensorData ? Buffer.from(payload.lppSensorData).length : 0}`
+    ].join(" ");
+  }
+
+  function describeStats(payload) {
+    return `type=${payload.type} data=${formatLogValue(payload.data)}`;
+  }
+
+  function describeChannelData(payload) {
+    return [
+      `snr=${typeof payload.snr === "number" ? payload.snr.toFixed(2) : "n/a"}`,
+      `channel=${payload.channelIdx}`,
+      `pathLen=${formatPathLen(payload.pathLen)}`,
+      `dataType=${payload.dataType}`,
+      `dataLen=${payload.data ? Buffer.from(payload.data).length : 0}`,
+      `data=0x${bufferToHex(payload.data)}`
+    ].join(" ");
+  }
+
+  function describeTraceData(payload) {
+    return [
+      `pathLen=${payload.pathLen}`,
+      `flags=${payload.flags}`,
+      `tag=${payload.tag}`,
+      `authCode=${payload.authCode}`,
+      `lastSnr=${payload.lastSnr}`
+    ].join(" ");
+  }
+
+  function describeBinaryResponse(payload) {
+    return [
+      `tag=${payload.tag}`,
+      `bytes=${payload.responseData ? Buffer.from(payload.responseData).length : 0}`,
+      `data=0x${bufferToHex(payload.responseData)}`
+    ].join(" ");
+  }
+
+  function describeGenericPayload(payload) {
+    return formatLogValue(payload);
+  }
+
+  function formatEventPayload(label, payload) {
+    if (!payload) {
+      return `${label}: {}`;
+    }
+
+    if (payload.advName !== undefined && payload.publicKey !== undefined) {
+      return `${label}: ${describeAdvert(payload)}`;
+    }
+
+    if (payload.channelIdx !== undefined && payload.text !== undefined) {
+      return `${label}: ${describeChannelMessage(payload)}`;
+    }
+
+    if (payload.pubKeyPrefix !== undefined && payload.text !== undefined) {
+      return `${label}: ${describeTextMessage(payload)}`;
+    }
+
+    if (payload.lppSensorData !== undefined) {
+      return `${label}: ${describeTelemetryResponse(payload)}`;
+    }
+
+    if (payload.data !== undefined && payload.type !== undefined) {
+      return `${label}: ${describeStats(payload)}`;
+    }
+
+    if (payload.dataType !== undefined) {
+      return `${label}: ${describeChannelData(payload)}`;
+    }
+
+    if (payload.pathLen !== undefined && payload.tag !== undefined && payload.authCode !== undefined) {
+      return `${label}: ${describeTraceData(payload)}`;
+    }
+
+    if (payload.responseData !== undefined) {
+      return `${label}: ${describeBinaryResponse(payload)}`;
+    }
+
+    if (payload.publicKey !== undefined && payload.advLat !== undefined && payload.advLon !== undefined) {
+      return `${label}: ${describeContact(payload)}`;
+    }
+
+    return `${label}: ${describeGenericPayload(payload)}`;
+  }
+
+  function formatRawFrame(frame, Constants) {
+    const bytes = Buffer.from(frame);
+    const code = bytes.length ? bytes[0] : null;
+    const name = code === null ? "empty" : frameNameFromCode(code, Constants);
+    return `RX frame ${name} (code=${code}, len=${bytes.length}) hex=[${frameToHex(bytes)}] ascii=[${frameToAscii(bytes)}]`;
+  }
+
+  function formatLogValue(value) {
+    return JSON.stringify(value, (_key, currentValue) => {
+      if (Buffer.isBuffer(currentValue)) {
+        return `0x${currentValue.toString("hex")}`;
+      }
+      if (currentValue instanceof Uint8Array) {
+        return `0x${Buffer.from(currentValue).toString("hex")}`;
+      }
+      return currentValue;
+    });
+  }
+
+  function logFrameEvent(label, payload) {
+    app.debug(formatEventPayload(label, payload));
+  }
+
   function buildKnownCodesSet(Constants) {
     return new Set([
       ...Object.values(Constants.ResponseCodes),
       ...Object.values(Constants.PushCodes)
     ]);
+  }
+
+  function attachFrameHandlers(connection, Constants) {
+    const eventHandlers = new Map([
+      [Constants.PushCodes.Advert, "MeshCore advert push"],
+      [Constants.PushCodes.PathUpdated, "MeshCore path updated push"],
+      [Constants.PushCodes.SendConfirmed, "MeshCore send confirmed push"],
+      [Constants.PushCodes.MsgWaiting, "MeshCore msg waiting push"],
+      [Constants.PushCodes.RawData, "MeshCore raw data push"],
+      [Constants.PushCodes.LoginSuccess, "MeshCore login success push"],
+      [Constants.PushCodes.LoginFail, "MeshCore login fail push"],
+      [Constants.PushCodes.StatusResponse, "MeshCore status response push"],
+      [Constants.PushCodes.LogRxData, "MeshCore rx log push"],
+      [Constants.PushCodes.TraceData, "MeshCore trace data push"],
+      [Constants.PushCodes.NewAdvert, "MeshCore new advert push"],
+      [Constants.PushCodes.TelemetryResponse, "MeshCore telemetry response push"],
+      [Constants.PushCodes.BinaryResponse, "MeshCore binary response push"],
+      [Constants.ResponseCodes.Ok, "MeshCore ok response"],
+      [Constants.ResponseCodes.Err, "MeshCore error response"],
+      [Constants.ResponseCodes.ContactsStart, "MeshCore contacts start response"],
+      [Constants.ResponseCodes.Contact, "MeshCore contact response"],
+      [Constants.ResponseCodes.EndOfContacts, "MeshCore end of contacts response"],
+      [Constants.ResponseCodes.SelfInfo, "MeshCore self info response"],
+      [Constants.ResponseCodes.Sent, "MeshCore sent response"],
+      [Constants.ResponseCodes.ContactMsgRecv, "MeshCore contact message recv"],
+      [Constants.ResponseCodes.ChannelMsgRecv, "MeshCore channel message recv"],
+      [Constants.ResponseCodes.CurrTime, "MeshCore current time response"],
+      [Constants.ResponseCodes.NoMoreMessages, "MeshCore no more messages response"],
+      [Constants.ResponseCodes.ExportContact, "MeshCore export contact response"],
+      [Constants.ResponseCodes.BatteryVoltage, "MeshCore battery voltage response"],
+      [Constants.ResponseCodes.DeviceInfo, "MeshCore device info response"],
+      [Constants.ResponseCodes.PrivateKey, "MeshCore private key response"],
+      [Constants.ResponseCodes.Disabled, "MeshCore disabled response"],
+      [Constants.ResponseCodes.ChannelInfo, "MeshCore channel info response"],
+      [Constants.ResponseCodes.SignStart, "MeshCore sign start response"],
+      [Constants.ResponseCodes.Signature, "MeshCore signature response"],
+      [Constants.ResponseCodes.Stats, "MeshCore stats response"],
+      [Constants.ResponseCodes.ChannelDataRecv, "MeshCore channel data recv"]
+    ]);
+
+    for (const [eventCode, label] of eventHandlers.entries()) {
+      connection.on(eventCode, (payload) => logFrameEvent(label, payload));
+    }
   }
 
   // For frames the library doesn't structurally recognise (e.g. custom
@@ -617,6 +858,7 @@ module.exports = function (app) {
     }
 
     const knownCodes = buildKnownCodesSet(Constants);
+    attachFrameHandlers(connection, Constants);
 
     // Fires for every frame received, before the library decides whether
     // it knows how to parse it. Used to (a) log a human-readable decode
@@ -624,8 +866,7 @@ module.exports = function (app) {
     // types the library doesn't structurally support yet.
     connection.on("rx", (frame) => {
       const code = frame && frame.length ? frame[0] : null;
-      const text = frameToReadableText(frame);
-      app.debug(`RX frame (code=${code}): ${text}`);
+      app.debug(formatRawFrame(frame, Constants));
 
       if (code !== null && pluginOptions.recoverTelFromUnknownFrames && !knownCodes.has(code)) {
         tryRecoverTelFromRawFrame(frame, code);
