@@ -1,3 +1,10 @@
+## v0.0.15 - 2026-06-24
+
+### 📦 Other
+- 0.0.15 (8199ad5)
+- fixed channel telemetry names (a567137)
+
+
 ## v0.0.14 - 2026-06-24
 
 ### 📦 Other
