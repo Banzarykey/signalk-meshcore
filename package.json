@@ -1,6 +1,6 @@
 {
   "name": "signalk-meshcore",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "SignalK plugin for MeshCore LoRa mesh radio — connects via TCP/WiFi or USB serial, decodes #TEL: telemetry, and publishes nodes as AIS-style vessel targets with tracks in freeboard-sk.",
   "keywords": [
     "signalk-node-server-plugin",
