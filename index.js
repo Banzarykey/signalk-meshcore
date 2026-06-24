@@ -505,35 +505,6 @@ module.exports = function (app) {
     return typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
   }
 
-  async function resolveChannelSenderIdentity(senderName) {
-    const normalizedName = normalizeDisplayName(senderName);
-    if (!normalizedName) {
-      return { hexId: null, displayName: null };
-    }
-
-    const cachedHexId = contactNameToHexId.get(normalizedName);
-    if (cachedHexId) {
-      return { hexId: cachedHexId, displayName: knownContacts.get(cachedHexId) || normalizedName };
-    }
-
-    try {
-      const contact = await connection.findContactByName(normalizedName);
-      if (contact) {
-        const hexId = prefixToHex(contact.publicKey.subarray(0, 6));
-        knownContacts.set(hexId, contact.advName);
-        contactNameToHexId.set(contact.advName, hexId);
-        return { hexId, displayName: contact.advName };
-      }
-    } catch (err) {
-      app.debug(`Could not resolve channel sender name ${normalizedName}: ${err.message}`);
-    }
-
-    return {
-      hexId: Buffer.from(normalizedName).toString("hex"),
-      displayName: normalizedName
-    };
-  }
-
   async function handleChannelMessage(message) {
     if (!isChannelAllowed(message.channelIdx)) {
       app.debug(`Ignoring message on channel ${message.channelIdx} (not in configured channel list)`);
@@ -560,12 +531,11 @@ module.exports = function (app) {
     // Prefer the stable contact-derived id if this sender name matches a
     // known contact, so this node doesn't get a second, separate vessel
     // when it also talks via direct/contact messages.
-    const senderIdentity = senderName
-      ? await resolveChannelSenderIdentity(senderName)
-      : { hexId: `channel${message.channelIdx}`, displayName: `Channel ${message.channelIdx} node` };
-
-    const hexId = senderIdentity.hexId;
-    const displayName = senderIdentity.displayName || `Channel ${message.channelIdx} node`;
+    const normalizedSenderName = normalizeDisplayName(senderName);
+    const hexId = normalizedSenderName
+      ? contactNameToHexId.get(normalizedSenderName) || Buffer.from(normalizedSenderName).toString("hex")
+      : `channel${message.channelIdx}`;
+    const displayName = senderName || `Channel ${message.channelIdx} node`;
 
     app.debug(
       `MeshCore channel #${message.channelIdx} TEL message${displayName ? ` from ${displayName}` : " (no sender id available)"}: ${message.text}`
