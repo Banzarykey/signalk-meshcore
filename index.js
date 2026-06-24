@@ -459,6 +459,10 @@ module.exports = function (app) {
       return;
     }
 
+    if (Number(message.type) === 2) {
+      return;
+    }
+
     const location = parseLocationAdvertCoordinates(message);
     if (!location) {
       return;
@@ -890,6 +894,9 @@ module.exports = function (app) {
           const hexId = prefixToHex(contact.publicKey.subarray(0, 6));
           knownContacts.set(hexId, contact.advName);
           contactNameToHexId.set(contact.advName, hexId);
+          if (Number(contact.type) === 2) {
+            continue;
+          }
           if (pluginOptions.captureLocationAdverts && Number.isFinite(contact.advLat) && Number.isFinite(contact.advLon)) {
             const latitude = contact.advLat / 1000000;
             const longitude = contact.advLon / 1000000;
