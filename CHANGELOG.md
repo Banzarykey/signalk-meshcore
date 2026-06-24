@@ -1,5 +1,16 @@
 ## v0.0.8 - 2026-06-24
 
+### 🧹 Chores
+- update CHANGELOG.md for v0.0.8 (6603f2c)
+
+### 📦 Other
+- Add NODE_AUTH_TOKEN to npm publish step (ec3d34d)
+- 0.0.8 (12e0b65)
+- fixed filtering error in packets (b009de8)
+
+
+## v0.0.8 - 2026-06-24
+
 ### 📦 Other
 - Add NODE_AUTH_TOKEN to npm publish step (ec3d34d)
 
