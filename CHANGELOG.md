@@ -1,3 +1,10 @@
+## v0.0.17 - 2026-06-24
+
+### 📦 Other
+- 0.0.17 (478fcb5)
+- fixed names for freeboard (ec4fa84)
+
+
 ## v0.0.16 - 2026-06-24
 
 ### 📦 Other
